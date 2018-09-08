@@ -3,6 +3,7 @@ from flask_restplus import Resource, Api, reqparse, fields
 from flask_mongoengine import MongoEngine
 from datetime import datetime
 import requests
+import heapq
 
 app = Flask(__name__)
 app.config['MONGODB_SETTINGS'] = {
@@ -176,7 +177,7 @@ class IndicatorQueryController(Resource):
         # get query param
         args = query_parser.parse_args()
         query = request.args['query']
-        type = 1
+        type = 0
         num = 10
         if query.startswith('top'):
             type = 1
@@ -190,13 +191,21 @@ class IndicatorQueryController(Resource):
             num = int(num)
         except ValueError:
             return {"message": "Wrong query param!"}
-        # entry = Entry(date=year)
-        collection = IndicatorCollection.objects.filter(collection_id=collection_id).filter(entries__date=year)
-        # Shop.objects.filter(shop_id=3307).filter(reported_info__online_mac='mac1')
-        print(collection)
-        print(type, num, collection_id, year, query)
+        collection = IndicatorCollection.objects.filter(collection_id=collection_id).first()
+        compare_list = []
+        for item in collection.entries:
+            if item.date == year and item.value is not None:
+                compare_list.append(item)
+        if type == 1:
+            entries = heapq.nlargest(num, compare_list, key=lambda s: s['value'])
+        else:
+            entries = heapq.nsmallest(num, compare_list, key=lambda s: s['value'])
 
-
+        return jsonify({
+            "indicator": collection.indicator,
+            "indicator_value": collection.indicator_value,
+            "entries": entries
+        })
 
 
 if __name__ == '__main__':
