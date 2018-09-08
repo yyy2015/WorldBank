@@ -46,6 +46,8 @@ class IndicatorCollection(db.Document):
 
 id_parser = reqparse.RequestParser()
 id_parser.add_argument('indicator_id', type=str, required=True, help='Indicator id')
+query_parser = reqparse.RequestParser()
+query_parser.add_argument('query', type=str, required=True, help='Query condition')
 
 collection_model = api.model('Model', {
     'location': fields.String,
@@ -63,30 +65,88 @@ class IndicatorCollectionController(Resource):
     def post(self):
         args = id_parser.parse_args()
         indicator_id = request.form['indicator_id']
-        url = "http://api.worldbank.org/v2/countries/all/indicators/" + indicator_id + "?date=2012:2017&format=json"
-        response = requests.get(url)
+        # return
+        return_obj = {}
+        status = 201
 
-        data = response.json()
-        ic = IndicatorCollection()
-        ic.indicator = data[1][0]['indicator']['id']
-        ic.indicator_value = data[1][0]['indicator']['value']
+        # if exist
+        exist = IndicatorCollection.objects(indicator=indicator_id).first()
+        if exist:
+            return_obj = exist
+            status = 200
+        else:
+            url = "http://api.worldbank.org/v2/countries/all/indicators/" + indicator_id + "?date=2012:2017&format=json"
+            response = requests.get(url)
+            data = response.json()
+            if response.status_code != requests.codes.ok or len(data) < 2:
+                response = jsonify({"message": "The input indicator id doesn't exist."})
+                response.status_code = 400
+                return response
 
-        for item in data[1]:
-            entry = Entry()
-            entry.country = item['country']['value']
-            entry.date = item['date']
-            entry.value = item['value']
-            ic.entries.append(entry)
+            ic = IndicatorCollection()
+            ic.indicator = data[1][0]['indicator']['id']
+            ic.indicator_value = data[1][0]['indicator']['value']
 
-        save_obj = ic.save()
+            for item in data[1]:
+                entry = Entry()
+                entry.country = item['country']['value']
+                entry.date = item['date']
+                entry.value = item['value']
+                ic.entries.append(entry)
+
+            return_obj = ic.save()
 
         result = {
-            'location': '/collections/'+str(save_obj.collection_id),
-            'collection_id': save_obj.collection_id,
-            'creation_time': save_obj.creation_time,
-            'indicator': ic.indicator_value
+            'location': '/collections/'+str(return_obj.collection_id),
+            'collection_id': return_obj.collection_id,
+            'creation_time': return_obj.creation_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            'indicator': return_obj.indicator_value
         }
-        return jsonify(result)
+        response = jsonify(result)
+        response.status_code = status
+        return response
+
+
+@api.route('/collections/<string:collection_id>')
+class IndicatorController(Resource):
+
+    def delete(self, collection_id):
+        # if exist
+        exist = IndicatorCollection.objects(collection_id=collection_id).first()
+        if not exist:
+            return jsonify({"message": "The collection doesn't exist!"})
+        exist.delete()
+        return jsonify({"message": "Collection = " + collection_id + " is removed from the database!"})
+
+
+@api.route('/collections/<string:collection_id>/<string:year>')
+class IndicatorQueryController(Resource):
+
+    def get(self, collection_id, year):
+        # get query param
+        args = query_parser.parse_args()
+        query = request.args['query']
+        type = 1
+        num = 10
+        if query.startswith('top'):
+            type = 1
+            num = query[3:]
+        elif query.startswith('bottom'):
+            type = 2
+            num = query[6:]
+        else:
+            return {"message": "Wrong query param!"}
+        try:
+            num = int(num)
+        except ValueError:
+            return {"message": "Wrong query param!"}
+        # entry = Entry(date=year)
+        collection = IndicatorCollection.objects.filter(collection_id=collection_id).filter(entries__date=year)
+        # Shop.objects.filter(shop_id=3307).filter(reported_info__online_mac='mac1')
+        print(collection)
+        print(type, num, collection_id, year, query)
+
+
 
 
 if __name__ == '__main__':
