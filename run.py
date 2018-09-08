@@ -50,11 +50,8 @@ id_parser.add_argument('indicator_id', type=str, required=True, help='Indicator 
 collection_model = api.model('Model', {
     'location': fields.String,
     'collection_id': fields.String,
-    'creation_time': fields.DateTime(dt_format='ISO 8601'),
-    'indicator': {
-        'id': fields.String,
-        'value': fields.String
-    }
+    'creation_time': fields.DateTime,
+    'indicator': fields.String
 })
 
 
@@ -71,18 +68,25 @@ class IndicatorCollectionController(Resource):
 
         data = response.json()
         ic = IndicatorCollection()
-        print(data[1][0])
-        ic.indicator = data[1][0].indicator.id
-        ic.indicator_value = data[1][0].indicator.value
+        ic.indicator = data[1][0]['indicator']['id']
+        ic.indicator_value = data[1][0]['indicator']['value']
 
         for item in data[1]:
             entry = Entry()
-            entry.country = item.country.value
-            entry.date = item.date
-            entry.value = item.value
+            entry.country = item['country']['value']
+            entry.date = item['date']
+            entry.value = item['value']
             ic.entries.append(entry)
 
-        return ic.save()
+        save_obj = ic.save()
+
+        result = {
+            'location': '/collections/'+str(save_obj.collection_id),
+            'collection_id': save_obj.collection_id,
+            'creation_time': save_obj.creation_time,
+            'indicator': ic.indicator_value
+        }
+        return jsonify(result)
 
 
 if __name__ == '__main__':
