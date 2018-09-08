@@ -56,7 +56,7 @@ collection_model = api.model('Model', {
 
 
 @api.route('/collections')
-class IndicatorCollectionController(Resource):
+class CollectionListController(Resource):
     def get(self):
         collection_list = IndicatorCollection.objects().all()
         collections = []
@@ -73,7 +73,7 @@ class IndicatorCollectionController(Resource):
 
 
 @api.route('/collections/<string:collection_id>')
-class IndicatorCollectionItemController(Resource):
+class CollectionItemController(Resource):
     def get(self, collection_id):
         collection = IndicatorCollection.objects(collection_id=collection_id).first()
         ic = trans_collection(collection)
@@ -83,7 +83,12 @@ class IndicatorCollectionItemController(Resource):
 @api.route('/collections/<string:collection_id>/<string:year>/<string:country>')
 class RetrieveIndicatorCountryAndYear(Resource):
     def get(self,collection_id,year,country):
-        collection = IndicatorCollection.objects(collection_id=collection_id).first()
+
+        entry = Entry()
+        entry.date = year
+        entry.country = country
+
+        collection = IndicatorCollection.objects(collection_id=collection_id,entries=[entry]).first()
         for item in collection.entries:
             if item['country'] == country and item['date'] == str(year):
                 result = {

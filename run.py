@@ -49,19 +49,26 @@ id_parser.add_argument('indicator_id', type=str, required=True, help='Indicator 
 query_parser = reqparse.RequestParser()
 query_parser.add_argument('query', type=str, required=True, help='Query condition')
 
-collection_model = api.model('Model', {
-    'location': fields.String,
-    'collection_id': fields.String,
-    'creation_time': fields.DateTime,
-    'indicator': fields.String
-})
 
 
 @api.route('/collections')
-class IndicatorCollectionController(Resource):
+class CollectionImportController(Resource):
+    # get collection list
     def get(self):
-        return {'hello': 'world'}
+        collection_list = IndicatorCollection.objects().all()
+        collections = []
+        for item in collection_list:
+            collection = {
+                'location': '/collections/' + str(item.collection_id),
+                'collection_id': item.collection_id,
+                'creation_time': item.creation_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                'indicator': item.indicator
+            }
+            collections.append(collection)
 
+        return jsonify(collections)
+
+    # import collection with indicator_id
     def post(self):
         args = id_parser.parse_args()
         indicator_id = request.form['indicator_id']
@@ -75,13 +82,20 @@ class IndicatorCollectionController(Resource):
             return_obj = exist
             status = 200
         else:
-            url = "http://api.worldbank.org/v2/countries/all/indicators/" + indicator_id + "?date=2012:2017&format=json"
+            temp_url = "http://api.worldbank.org/v2/countries/all/indicators/" + indicator_id + "?date=2012:2017&format=json"
+            temp_res = requests.get(temp_url)
+            # judge if the indicator_id illegal
+            if temp_res.status_code != requests.codes.ok or len(temp_res.json()) < 2:
+                temp_response = jsonify({"message": "The input indicator id doesn't exist."})
+                temp_response.status_code = 400
+                return temp_response
+            # get total data size
+            total = temp_res.json()[0]['total']
+
+            # get all data related with indicator_id
+            url = "http://api.worldbank.org/v2/countries/all/indicators/" + indicator_id + "?date=2012:2017&format=json&per_page="+str(total)
             response = requests.get(url)
             data = response.json()
-            if response.status_code != requests.codes.ok or len(data) < 2:
-                response = jsonify({"message": "The input indicator id doesn't exist."})
-                response.status_code = 400
-                return response
 
             ic = IndicatorCollection()
             ic.indicator = data[1][0]['indicator']['id']
@@ -107,16 +121,52 @@ class IndicatorCollectionController(Resource):
         return response
 
 
-@api.route('/collections/<string:collection_id>')
-class IndicatorController(Resource):
+@api.route('/collections/<int:collection_id>')
+class CollectionDeleteController(Resource):
+    # get collection by indicator_id
+    def get(self, collection_id):
+        collection = IndicatorCollection.objects(collection_id=collection_id).first()
+        if collection:
+            ic = {
+                'collection_id': collection.collection_id,
+                'indicator': collection.indicator,
+                'indicator_value': collection.indicator_value,
+                'creation_time': collection.creation_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                'entries': collection.entries
+            }
+            return jsonify(ic)
+        else:
+            return {'error':'the collection not exist'}, 400
 
+    # delete collection by indicator_id
     def delete(self, collection_id):
         # if exist
         exist = IndicatorCollection.objects(collection_id=collection_id).first()
         if not exist:
             return jsonify({"message": "The collection doesn't exist!"})
         exist.delete()
-        return jsonify({"message": "Collection = " + collection_id + " is removed from the database!"})
+        return jsonify({"message": "Collection = " + str(collection_id) + " is removed from the database!"})
+
+
+@api.route('/collections/<string:collection_id>/<string:year>/<string:country>')
+class RetrieveIndicatorCountryAndYear(Resource):
+    # get indicator value with collection_id,year and country
+    def get(self,collection_id,year,country):
+
+        collection = IndicatorCollection.objects(collection_id=collection_id).first()
+        if collection:
+            for item in collection.entries:
+                if item['country'] == country and item['date'] == str(year):
+                    result = {
+                        'collection_id':collection.collection_id,
+                        'indicator':collection.indicator,
+                        'country':country,
+                        'year':year,
+                        'value':str(item['value'])
+                    }
+                    return jsonify(result)
+
+        return {'error':'no such data'}, 400
 
 
 @api.route('/collections/<string:collection_id>/<string:year>')
